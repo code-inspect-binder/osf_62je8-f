@@ -1,0 +1,520 @@
+---
+title: "NRSA-CA"
+author: "David Murray-Stoker"
+date: "11 November 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Predictor Variable Summaries
+
+Summary statistics for all predictor variables used in the BRT analyses. Statistics include: N, mean, standard deviation, standard error, and 95% confidence intervals.
+
+```{r Load Packages & Data, include=FALSE}
+library(plyr) # Load before dplyr to avoid any potential issues with both packages
+
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(reshape2)
+
+## Read in workspace
+load("~/Documents/Research/NRSA-CA/R Code/1-Primary Analysis/DMS-NRSA-CA-Workspace.RData")
+```
+
+
+## Summary of Predictors for the CUS
+
+Calculating means and measures of variation (e.g. standard errors, confidence intervals) for predictor variables at the level of the CUS.
+
+```{r Summaries for the CUS, include=FALSE}
+final.data$CUS <- "CUS"
+
+## Environmental----------------------------------------------------------#
+NO3.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										     N    = sum(!is.na(NO3)),
+										     mean = mean(NO3, na.rm = TRUE),
+										     sd   = sd(NO3, na.rm = TRUE),
+										     se   = sd / sqrt(N),
+										     LL   = quantile(NO3, 0.025),
+										     UL   = quantile(NO3, 0.975)
+)
+
+NH4.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										     N    = sum(!is.na(NH4)),
+										     mean = mean(NH4, na.rm = TRUE),
+										     sd   = sd(NH4, na.rm = TRUE),
+										     se   = sd / sqrt(N),
+										     LL   = quantile(NH4, 0.025),
+										     UL   = quantile(NH4, 0.975)
+)
+
+total.P.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										         N    = sum(!is.na(total.P)),
+										         mean = mean(total.P, na.rm = TRUE),
+										         sd   = sd(total.P, na.rm = TRUE),
+										         se   = sd / sqrt(N),
+										         LL   = quantile(total.P, 0.025),
+										         UL   = quantile(total.P, 0.975)
+)
+
+pH.lab.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+											      N    = sum(!is.na(pH.lab)),
+											      mean = mean(pH.lab, na.rm = TRUE),
+											      sd   = sd(pH.lab, na.rm = TRUE),
+											      se   = sd / sqrt(N),
+											      LL   = quantile(pH.lab, 0.025),
+											      UL   = quantile(pH.lab, 0.975)
+)
+
+cond.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										      N    = sum(!is.na(cond)),
+										      mean = mean(cond, na.rm = TRUE),
+										      sd   = sd(cond, na.rm = TRUE),
+										      se   = sd / sqrt(N),
+										      LL   = quantile(cond, 0.025),
+										      UL   = quantile(cond, 0.975)
+)
+
+DOC.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										     N    = sum(!is.na(DOC)),
+										     mean = mean(DOC, na.rm = TRUE),
+										     sd   = sd(DOC, na.rm = TRUE),
+										     se   = sd / sqrt(N),
+										     LL   = quantile(DOC, 0.025),
+										     UL   = quantile(DOC, 0.975)
+)
+
+LWD.reach.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+													     N    = sum(!is.na(LWD.reach)),
+										 	         mean = mean(LWD.reach, na.rm = TRUE),
+											         sd   = sd(LWD.reach, na.rm = TRUE),
+											         se   = sd / sqrt(N),
+											         LL   = quantile(LWD.reach, 0.025),
+											         UL   = quantile(LWD.reach, 0.975)
+)
+
+NAT.cover.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+											         N    = sum(!is.na(NAT.cover)),
+											         mean = mean(NAT.cover, na.rm = TRUE),
+											         sd   = sd(NAT.cover, na.rm = TRUE),
+											         se   = sd / sqrt(N),
+											         LL   = quantile(NAT.cover, 0.025),
+											         UL   = quantile(NAT.cover, 0.975)
+)
+
+ALG.cover.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+												       N    = sum(!is.na(ALG.cover)),
+												       mean = mean(ALG.cover, na.rm = TRUE),
+												       sd   = sd(ALG.cover, na.rm = TRUE),
+												       se   = sd / sqrt(N),
+												       LL   = quantile(ALG.cover, 0.025),
+												       UL   = quantile(ALG.cover, 0.975)
+)
+
+## Landscape--------------------------------------------------------------#
+pct.for.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+												     N    = sum(!is.na(pct.for)),
+												     mean = mean(pct.for, na.rm = TRUE),
+												     sd   = sd(pct.for, na.rm = TRUE),
+												     se   = sd / sqrt(N),
+												     LL   = quantile(pct.for, 0.025),
+												     UL   = quantile(pct.for, 0.975)
+)
+
+pct.ag.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+											      N    = sum(!is.na(pct.ag)),
+											      mean = mean(pct.ag, na.rm = TRUE),
+											      sd   = sd(pct.ag, na.rm = TRUE),
+											      se   = sd / sqrt(N),
+											      LL   = quantile(pct.ag, 0.025),
+											      UL   = quantile(pct.ag, 0.975)
+)
+
+pct.urb.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+											       N    = sum(!is.na(pct.urb)),
+											       mean = mean(pct.urb, na.rm = TRUE),
+											       sd   = sd(pct.urb, na.rm = TRUE),
+											       se   = sd / sqrt(N),
+											       LL   = quantile(pct.urb, 0.025),
+											       UL   = quantile(pct.urb, 0.975)
+)
+
+pct.ISC.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+											       N    = sum(!is.na(pct.ISC)),
+											       mean = mean(pct.ISC, na.rm = TRUE),
+											       sd   = sd(pct.ISC, na.rm = TRUE),
+											       se   = sd / sqrt(N),
+											       LL   = quantile(pct.ISC, 0.025),
+											       UL   = quantile(pct.ISC, 0.975)
+)
+
+## Network----------------------------------------------------------------#
+lat.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										     N    = sum(!is.na(site.lat)),
+										     mean = mean(site.lat, na.rm = TRUE),
+										     sd   = sd(site.lat, na.rm = TRUE),
+										     se   = sd / sqrt(N),
+										     LL   = quantile(site.lat, 0.025),
+										     UL   = quantile(site.lat, 0.975)
+)
+
+long.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+										      N    = sum(!is.na(site.long)),
+										      mean = mean(site.long, na.rm = TRUE),
+										      sd   = sd(site.long, na.rm = TRUE),
+										      se   = sd / sqrt(N),
+										      LL   = quantile(site.long, 0.025),
+										      UL   = quantile(site.long, 0.975)
+)
+
+basin.area.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+														    N    = sum(!is.na(basin.area)),
+														    mean = mean(basin.area, na.rm = TRUE),
+														    sd   = sd(basin.area, na.rm = TRUE),
+														    se   = sd / sqrt(N),
+														    LL   = quantile(basin.area, 0.025),
+														    UL   = quantile(basin.area, 0.975)
+)
+
+mean.annual.flow.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+													            N    = sum(!is.na(mean.annual.flow)),
+													            mean = mean(mean.annual.flow, na.rm = TRUE),
+													            sd   = sd(mean.annual.flow, na.rm = TRUE),
+													            se   = sd / sqrt(N),
+													            LL   = quantile(mean.annual.flow, 0.025),
+													            UL   = quantile(mean.annual.flow, 0.975)
+)
+
+site.centrality.CUS.summary <- ddply(final.data, c("CUS"), summarise,
+														         N    = sum(!is.na(site.centrality)),
+														         mean = mean(site.centrality, na.rm = TRUE),
+														         sd   = sd(site.centrality, na.rm = TRUE),
+														         se   = sd / sqrt(N),
+														         LL   = quantile(site.centrality, 0.025),
+														         UL   = quantile(site.centrality, 0.975)
+)
+```
+
+
+```{r NO3 Summary-CUS, echo=FALSE}
+kable(NO3.CUS.summary, booktabs = TRUE, caption = "Summary of NO3 for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r NH4 Summary-CUS, echo=FALSE}
+kable(NH4.CUS.summary, booktabs = TRUE, caption = "Summary of NH4 for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Total P Summary-CUS, echo=FALSE}
+kable(total.P.CUS.summary, booktabs = TRUE, caption = "Summary of total P for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r pH Summary-CUS, echo=FALSE}
+kable(pH.lab.CUS.summary, booktabs = TRUE, caption = "Summary of pH for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Conductivity Summary-CUS, echo=FALSE}
+kable(cond.CUS.summary, booktabs = TRUE, caption = "Summary of conductivity for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r DOC Summary-CUS, echo=FALSE}
+kable(DOC.CUS.summary, booktabs = TRUE, caption = "Summary of DOC for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r LWD Summary-CUS, echo=FALSE}
+kable(LWD.reach.CUS.summary, booktabs = TRUE, caption = "Summary of LWD for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Natural Cover Summary-CUS, echo=FALSE}
+kable(NAT.cover.CUS.summary, booktabs = TRUE, caption = "Summary of natural cover for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Algal Cover Summary-CUS, echo=FALSE}
+kable(ALG.cover.CUS.summary, booktabs = TRUE, caption = "Summary of algal cover for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Forested Land Cover Summary-CUS, echo=FALSE}
+kable(pct.for.CUS.summary, booktabs = TRUE, caption = "Summary of percent forested land cover for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Agricultural Land Cover Summary-CUS, echo=FALSE}
+kable(pct.ag.CUS.summary, booktabs = TRUE, caption = "Summary of percent agricultural land cover for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Urban Land Cover Summary-CUS, echo=FALSE}
+kable(pct.urb.CUS.summary, booktabs = TRUE, caption = "Summary of percent urban land cover for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Impervious Land Cover Summary-CUS, echo=FALSE}
+kable(pct.ISC.CUS.summary, booktabs = TRUE, caption = "Summary of percent impervious land cover for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Latitude Summary-CUS, echo=FALSE}
+kable(lat.CUS.summary, booktabs = TRUE, caption = "Summary of site latitude for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Longitude Summary-CUS, echo=FALSE}
+kable(long.CUS.summary, booktabs = TRUE, caption = "Summary of site longitude for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Basin Area Summary-CUS, echo=FALSE}
+kable(pct.for.CUS.summary, booktabs = TRUE, caption = "Summary of basin area for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Mean Annual Flow Summary-CUS, echo=FALSE}
+kable(mean.annual.flow.CUS.summary, booktabs = TRUE, digits = 15, caption = "Summary of mean annual flow for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Site Centrality Summary-CUS, echo=FALSE}
+kable(site.centrality.CUS.summary, booktabs = TRUE, caption = "Summary of site centrality for the CUS.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+\newpage
+## Summary of Predictors for the Ecoregions
+
+Calculating means and measures of variation (e.g. standard errors, confidence intervals) for predictor variables for each of the nine ecoregions.
+
+```{r Summaries for each Ecoregion, include=FALSE}
+## Environmental----------------------------------------------------------#
+NO3.summary <- ddply(final.data, c("ecoregion"), summarise,
+										 N    = sum(!is.na(NO3)),
+										 mean = mean(NO3, na.rm = TRUE),
+										 sd   = sd(NO3, na.rm = TRUE),
+										 se   = sd / sqrt(N),
+										 LL   = quantile(NO3, 0.025),
+										 UL   = quantile(NO3, 0.975)
+)
+
+NH4.summary <- ddply(final.data, c("ecoregion"), summarise,
+										 N    = sum(!is.na(NH4)),
+										 mean = mean(NH4, na.rm = TRUE),
+										 sd   = sd(NH4, na.rm = TRUE),
+										 se   = sd / sqrt(N),
+										 LL   = quantile(NH4, 0.025),
+										 UL   = quantile(NH4, 0.975)
+)
+
+total.P.summary <- ddply(final.data, c("ecoregion"), summarise,
+										     N    = sum(!is.na(total.P)),
+										     mean = mean(total.P, na.rm = TRUE),
+										     sd   = sd(total.P, na.rm = TRUE),
+										     se   = sd / sqrt(N),
+										     LL   = quantile(total.P, 0.025),
+										     UL   = quantile(total.P, 0.975)
+)
+
+pH.lab.summary <- ddply(final.data, c("ecoregion"), summarise,
+											  N    = sum(!is.na(pH.lab)),
+											  mean = mean(pH.lab, na.rm = TRUE),
+											  sd   = sd(pH.lab, na.rm = TRUE),
+											  se   = sd / sqrt(N),
+											  LL   = quantile(pH.lab, 0.025),
+											  UL   = quantile(pH.lab, 0.975)
+)
+
+cond.summary <- ddply(final.data, c("ecoregion"), summarise,
+										  N    = sum(!is.na(cond)),
+										  mean = mean(cond, na.rm = TRUE),
+										  sd   = sd(cond, na.rm = TRUE),
+										  se   = sd / sqrt(N),
+										  LL   = quantile(cond, 0.025),
+										  UL   = quantile(cond, 0.975)
+)
+
+DOC.summary <- ddply(final.data, c("ecoregion"), summarise,
+										 N    = sum(!is.na(DOC)),
+										 mean = mean(DOC, na.rm = TRUE),
+										 sd   = sd(DOC, na.rm = TRUE),
+										 se   = sd / sqrt(N),
+										 LL   = quantile(DOC, 0.025),
+										 UL   = quantile(DOC, 0.975)
+)
+
+LWD.reach.summary <- ddply(final.data, c("ecoregion"), summarise,
+											     N    = sum(!is.na(LWD.reach)),
+											     mean = mean(LWD.reach, na.rm = TRUE),
+											     sd   = sd(LWD.reach, na.rm = TRUE),
+											     se   = sd / sqrt(N),
+											     LL   = quantile(LWD.reach, 0.025),
+											     UL   = quantile(LWD.reach, 0.975)
+)
+
+NAT.cover.summary <- ddply(final.data, c("ecoregion"), summarise,
+											     N    = sum(!is.na(NAT.cover)),
+											     mean = mean(NAT.cover, na.rm = TRUE),
+											     sd   = sd(NAT.cover, na.rm = TRUE),
+											     se   = sd / sqrt(N),
+											     LL   = quantile(NAT.cover, 0.025),
+											     UL   = quantile(NAT.cover, 0.975)
+)
+
+ALG.cover.summary <- ddply(final.data, c("ecoregion"), summarise,
+												   N    = sum(!is.na(ALG.cover)),
+												   mean = mean(ALG.cover, na.rm = TRUE),
+												   sd   = sd(ALG.cover, na.rm = TRUE),
+												   se   = sd / sqrt(N),
+												   LL   = quantile(ALG.cover, 0.025),
+												   UL   = quantile(ALG.cover, 0.975)
+)
+
+## Landscape--------------------------------------------------------------#
+pct.for.summary <- ddply(final.data, c("ecoregion"), summarise,
+												 N    = sum(!is.na(pct.for)),
+												 mean = mean(pct.for, na.rm = TRUE),
+												 sd   = sd(pct.for, na.rm = TRUE),
+												 se   = sd / sqrt(N),
+												 LL   = quantile(pct.for, 0.025),
+												 UL   = quantile(pct.for, 0.975)
+)
+
+pct.ag.summary <- ddply(final.data, c("ecoregion"), summarise,
+											  N    = sum(!is.na(pct.ag)),
+											  mean = mean(pct.ag, na.rm = TRUE),
+											  sd   = sd(pct.ag, na.rm = TRUE),
+											  se   = sd / sqrt(N),
+											  LL   = quantile(pct.ag, 0.025),
+											  UL   = quantile(pct.ag, 0.975)
+)
+
+pct.urb.summary <- ddply(final.data, c("ecoregion"), summarise,
+											   N    = sum(!is.na(pct.urb)),
+											   mean = mean(pct.urb, na.rm = TRUE),
+											   sd   = sd(pct.urb, na.rm = TRUE),
+											   se   = sd / sqrt(N),
+											   LL   = quantile(pct.urb, 0.025),
+											   UL   = quantile(pct.urb, 0.975)
+)
+
+pct.ISC.summary <- ddply(final.data, c("ecoregion"), summarise,
+											   N    = sum(!is.na(pct.ISC)),
+											   mean = mean(pct.ISC, na.rm = TRUE),
+											   sd   = sd(pct.ISC, na.rm = TRUE),
+											   se   = sd / sqrt(N),
+											   LL   = quantile(pct.ISC, 0.025),
+											   UL   = quantile(pct.ISC, 0.975)
+)
+
+## Network----------------------------------------------------------------#
+lat.summary <- ddply(final.data, c("ecoregion"), summarise,
+										 N    = sum(!is.na(site.lat)),
+										 mean = mean(site.lat, na.rm = TRUE),
+										 sd   = sd(site.lat, na.rm = TRUE),
+										 se   = sd / sqrt(N),
+										 LL   = quantile(site.lat, 0.025),
+										 UL   = quantile(site.lat, 0.975)
+)
+
+long.summary <- ddply(final.data, c("ecoregion"), summarise,
+										  N    = sum(!is.na(site.long)),
+										  mean = mean(site.long, na.rm = TRUE),
+										  sd   = sd(site.long, na.rm = TRUE),
+										  se   = sd / sqrt(N),
+										  LL   = quantile(site.long, 0.025),
+										  UL   = quantile(site.long, 0.975)
+)
+
+basin.area.summary <- ddply(final.data, c("ecoregion"), summarise,
+														N    = sum(!is.na(basin.area)),
+														mean = mean(basin.area, na.rm = TRUE),
+														sd   = sd(basin.area, na.rm = TRUE),
+														se   = sd / sqrt(N),
+														LL   = quantile(basin.area, 0.025),
+														UL   = quantile(basin.area, 0.975)
+)
+
+mean.annual.flow.summary <- ddply(final.data, c("ecoregion"), summarise,
+														      N    = sum(!is.na(mean.annual.flow)),
+														      mean = mean(mean.annual.flow, na.rm = TRUE),
+														      sd   = sd(mean.annual.flow, na.rm = TRUE),
+														      se   = sd / sqrt(N),
+														      LL   = quantile(mean.annual.flow, 0.025),
+														      UL   = quantile(mean.annual.flow, 0.975)
+)
+
+site.centrality.summary <- ddply(final.data, c("ecoregion"), summarise,
+														     N    = sum(!is.na(site.centrality)),
+														     mean = mean(site.centrality, na.rm = TRUE),
+														     sd   = sd(site.centrality, na.rm = TRUE),
+														     se   = sd / sqrt(N),
+														     LL   = quantile(site.centrality, 0.025),
+														     UL   = quantile(site.centrality, 0.975)
+)
+```
+
+```{r NO3 Summary-Ecoregions, echo=FALSE}
+kable(NO3.summary, booktabs = TRUE, caption = "Summary of NO3 for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r NH4 Summary-Ecoregions, echo=FALSE}
+kable(NH4.summary, booktabs = TRUE, caption = "Summary of NH4 for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Total P Summary-Ecoregions, echo=FALSE}
+kable(total.P.summary, booktabs = TRUE, caption = "Summary of total P for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r pH Summary-Ecoregions, echo=FALSE}
+kable(pH.lab.summary, booktabs = TRUE, caption = "Summary of pH for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Conductivity Summary-Ecoregions, echo=FALSE}
+kable(cond.summary, booktabs = TRUE, caption = "Summary of conductivity for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r DOC Summary-Ecoregions, echo=FALSE}
+kable(DOC.summary, booktabs = TRUE, caption = "Summary of DOC for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r LWD Summary-Ecoregions, echo=FALSE}
+kable(LWD.reach.summary, booktabs = TRUE, caption = "Summary of LWD for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Natural Cover Summary-Ecoregions, echo=FALSE}
+kable(NAT.cover.summary, booktabs = TRUE, caption = "Summary of natural cover for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Algal Cover Summary-Ecoregions, echo=FALSE}
+kable(ALG.cover.summary, booktabs = TRUE, caption = "Summary of algal cover for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Forested Land Cover Summary-Ecoregions, echo=FALSE}
+kable(pct.for.summary, booktabs = TRUE, caption = "Summary of percent forested land cover for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Agricultural Land Cover Summary-Ecoregions, echo=FALSE}
+kable(pct.ag.summary, booktabs = TRUE, caption = "Summary of percent agricultural land cover for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Urban Land Cover Summary-Ecoregions, echo=FALSE}
+kable(pct.urb.summary, booktabs = TRUE, caption = "Summary of percent urban land cover for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Percent Impervious Land Cover Summary-Ecoregions, echo=FALSE}
+kable(pct.ISC.summary, booktabs = TRUE, caption = "Summary of percent impervious land cover for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Latitude Summary-Ecoregions, echo=FALSE}
+kable(lat.summary, booktabs = TRUE, caption = "Summary of site latitude for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Longitude Summary-Ecoregions, echo=FALSE}
+kable(long.summary, booktabs = TRUE, caption = "Summary of site longitude for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Basin Area Summary-Ecoregions, echo=FALSE}
+kable(basin.area.summary, booktabs = TRUE, caption = "Summary of basin area for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Mean Annual Flow Summary-Ecoregions, echo=FALSE}
+kable(mean.annual.flow.summary, booktabs = TRUE, digits = 15, caption = "Summary of mean annual flow for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Site Centrality Summary-Ecoregions, echo=FALSE}
+kable(site.centrality.summary, booktabs = TRUE, caption = "Summary of site centrality for each ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+

@@ -1,0 +1,192 @@
+---
+title: "NRSA-CA-QC"
+subtitle: "BRT Model Training"
+output: 
+  pdf_document: 
+    fig_caption: yes
+always_allow_html: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+kableExtra::usepackage_latex("float")
+options(knitr.graphics.error = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r Load Package for R Markdown, include = FALSE}
+library(kableExtra)
+library(knitr)
+```
+
+# National Rivers and Streams Assessment-Community Assembly
+
+## Model training for boosted regression tree analyses
+
+Boosted regression trees are tuned across a suite of model parameters to optimize model performance and accuracy as well as reducing the potential of overfitting.
+
+```{r Load Packages & Data, include = FALSE}
+library(plyr) # Load before dplyr to avoid any issues with dplyr package
+
+library(caret)
+library(gbm)
+library(parallel)
+library(snow)
+
+## Load the tidyverse
+library(tidyverse)
+
+## Read in workspace with data to be used for BRT analyses
+#load("R/2-BRT_Model_Training/DMS-NRSA-CA-QC-BRT_Training_Data.RData")
+
+## Set number of cores for parallel processing
+n.cores <- detectCores() - 1
+```
+
+
+## Data Management
+
+Subset data compiled from the community assembly analyses so that only predictors used in each set of boosted regression trees are included in the data.
+
+```{r Data Management, include = FALSE}
+## Format data for the BRTs
+CPL.CA.BRT.data <- CPL.RA.data
+NAP.CA.BRT.data <- NAP.RA.data
+NPL.CA.BRT.data <- NPL.RA.data
+SAP.CA.BRT.data <- SAP.RA.data
+SPL.CA.BRT.data <- SPL.RA.data
+TPL.CA.BRT.data <- TPL.RA.data
+UMW.CA.BRT.data <- UMW.RA.data
+WMT.CA.BRT.data <- WMT.RA.data
+XER.CA.BRT.data <- XER.RA.data
+
+## Bind all ecoregions for the CUS
+CUS.CA.BRT.data <- bind_rows(CPL.CA.BRT.data, NAP.CA.BRT.data, NPL.CA.BRT.data,
+														 SAP.CA.BRT.data, SPL.CA.BRT.data, TPL.CA.BRT.data,
+														 UMW.CA.BRT.data, WMT.CA.BRT.data, XER.CA.BRT.data
+														 )
+```
+
+
+## Boosted Regression Tree (BRT) Model Training
+ 
+Analyze boosted regression trees (BRTs) to identify which predictors have the greatest influence on community functional composition. A single BRT is quantified with all data (i.e. all ecoregions included) in order to identfiy which predictors are most important for the conterminous United States (CUS). In addition to the CUS BRT, separate BRTs are quantified for each ecoregion to examine important predictors that are ecoregion-specific or vary in relative importance among ecoregions.
+
+BRTs have predictor variables grouped into three classes: environmental, geographic, and network. Environmental variables are considered "local" while geographic and network predictors are considered "regional."
+
+List of variables and their respective categories:
+
+* Environmental = NO3, NH4, total.P, pH.lab, cond, DOC, LWD.reach, NAT.cover, ALG.cover
+* Landscape = pct.for, pct.ag, pct.urb, pct.ISC
+* Network = site.lat, site.long, basin.area, mean.annual.flow, site.centrality
+
+BRTs parameters were determined with model tuning, whereby the number of trees, interaction depth, observations per node, and learning rate were set to a series of different values to optimize the BRTs for each ecoregion and the CUS.
+
+Tuning values for each BRT:
+
+* Number of trees = 1000, 5000, 7500, 10000, 20000
+* Interaction depth = 2, 3
+* Minimum observation per node = 5, 10, 15, 20, 25, 50
+* Shrinkage = 0.0001, 0.0005, 0.001
+
+For further reading on BRTs, please see:
+
+> De’Ath, G. 2007. Boosted trees for ecological modeling and prediction. _Ecology_ 88:243–251.
+
+> Elith, J., J. R. Leathwick, and T. Hastie. 2008. A working guide to boosted regression trees. _Journal of Animal Ecology_ 77:802–813.
+
+
+```{r BRT Model Training, include = FALSE}
+## List of data for boosted regression analyses
+CA.BRT.data.list <- list(CUS.CA.BRT.data, CPL.CA.BRT.data, 
+											   NAP.CA.BRT.data, NPL.CA.BRT.data, 
+											   SAP.CA.BRT.data, SPL.CA.BRT.data, 
+											   TPL.CA.BRT.data, UMW.CA.BRT.data,
+											   WMT.CA.BRT.data, XER.CA.BRT.data
+												 )
+
+## Start cluster
+cluster <- makeCluster(n.cores)
+
+## Run the analysis for the CUS and each ecoregion
+CA.BRT.training.list <- parLapply(cluster, CA.BRT.data.list, fun = 
+  function(j){
+  	require(caret)
+  	require(gbm)
+ 	
+ 	  ## BRT model training across a suite of model parameters
+ 	  BRT.training <- train(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									                      + LWD.reach + NAT.cover + ALG.cover
+									                      + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											              + site.lat + site.long
+									                      + basin.area + mean.annual.flow 
+											                  + site.centrality,
+		  									  data = j, 
+			  								  method = "gbm", 
+				  							  verbose = FALSE,
+					  						  tuneGrid = expand.grid(n.trees = c(1000, 5000, 7500, 10000, 20000), 
+						  									     interaction.depth = c(2:3), 
+							  								     shrinkage = c(0.0001, 0.0005, 0.001),
+								  							     n.minobsinnode = c(5, 10, 15, 20, 25, 50)
+						  									     )
+									  		)
+
+ 	  ## Set dataframe for best tune of the BRT
+    best.tune <- BRT.training$bestTune
+    }
+)
+
+## Stop cluster
+stopCluster(cluster)
+
+## Rename each dataframe within the list
+names(CA.BRT.training.list) <- c("CUS.CA.BRT.training", "CPL.CA.BRT.training", 
+																 "NAP.CA.BRT.training", "NPL.CA.BRT.training", 
+																 "SAP.CA.BRT.training", "SPL.CA.BRT.training", 
+																 "TPL.CA.BRT.training", "UMW.CA.BRT.training",
+																 "WMT.CA.BRT.training", "XER.CA.BRT.training"
+																 )
+
+## Export volume deviation BRT training results
+list2env(CA.BRT.training.list, envir = .GlobalEnv)
+
+## Final dataframe with all volume deviation BRT training data
+CA.BRT.training.output <- bind_rows(CUS.CA.BRT.training, CPL.CA.BRT.training, 
+																		NAP.CA.BRT.training, NPL.CA.BRT.training,
+																		SAP.CA.BRT.training, SPL.CA.BRT.training, 
+																		TPL.CA.BRT.training, UMW.CA.BRT.training, 
+																		WMT.CA.BRT.training, XER.CA.BRT.training
+																		)
+## Add a column for ecoregion
+CA.BRT.training.output$ecoregion <- c("CUS", "CPL", "NAP", "NPL", "SAP", "SPL",
+																			"TPL", "UMW", "WMT", "XER")
+```
+
+
+\newpage
+#### BRT Model Training Results
+
+Results derived from the BRT model training. These model parameters will be tuned for each model evaluated during the actual BRT analyses to identify the drivers of community assembly.
+
+```{r BRT Model Training Results, echo = FALSE}
+kable(CA.BRT.training.output, 
+			booktabs = TRUE,
+			digits = 4,
+			caption = "Model training results for the BRTs.") %>% 
+	kable_styling(latex_options = c("HOLD_position", "striped"))
+```
+
+
+
+```{r Save BRT Model Training Output, eval = FALSE, include = FALSE}
+## Save workspace
+save.image("R/2-BRT_Model_Training/DMS-NRSA-CA-QC-BRT_Training_Output.RData")
+```
+
+
+```{r Computational Time, include = FALSE}
+## Computational time (3 cores)
+# Start =  8:08pm, 18 March 2021
+# End   = 12:25am, 19 March 2021
+```
+

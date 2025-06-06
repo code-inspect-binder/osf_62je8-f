@@ -1,0 +1,896 @@
+---
+title: "NRSA-CA"
+author: "David Murray-Stoker"
+date: "18 December 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/Documents/Research/NRSA-CA/CSV Files")
+kableExtra::usepackage_latex("float")
+```
+
+# National Rivers and Streams Assessment-Community Assembly
+
+Evaluating metacommunity structure and diversity as well as the drivers of invertebrate community assembly in rivers and streams across the conterminous United States. Metacommunities were defined as the nine ecoregions (coastal plain = CPL, northern Appalachians = NAP, northern plain = NPL, southern Appalachians = SAP, southern plain = SPL, temperate plain = TPL, upper midwest = UMW, western mountains = WMT, and xeric = XER) and the aggregation of all ecoregions as the conterminous United States (CUS) to identify: (1) the differences in community structure and diversity among ecoregions; (2) what drives community assembly at the (eco)regional level; and (3) if the identity and/or magnitude of drivers of community assembly vary among ecoregions.
+
+Data and R code for the manuscript:
+
+> Murray-Stoker, D., and K. M. Murray-Stoker. Consistent metacommunity structure despite inconsistent drivers of assembly at the continental scale.
+
+
+## Load Packages & Data
+
+Data and R packages required for data management and analyses are loaded into the  environment.
+
+```{r Load Packages & Data, include=FALSE}
+library(plyr) # Load before dplyr to avoid any potential issues with both packages
+
+library(agricolae)
+library(broom)
+library(dplyr)
+library(gbm)
+library(geosphere)
+library(ggplot2)
+library(gridExtra)
+library(kableExtra)
+library(knitr)
+library(metacom)
+library(parallel)
+library(reshape2)
+library(snow)
+library(vegan)
+
+## Source code for helper functions and themes for creating figures
+source("~/Documents/R Materials/R Script/DMS-ggplot2-supplement.R")
+
+## Read in data
+invertebrate.data    <- read.csv("NRSA-invertebrates.csv")
+habitat.data         <- read.csv("NRSA-physical_habitat.csv")
+landscape.data       <- read.csv("NRSA-landscape.csv")
+water.chemistry.data <- read.csv("NRSA-water_chemistry.csv")
+
+## Merge all data into a primary dataframe
+full.data.bin.1 <- merge(landscape.data, habitat.data, by = "UID")
+full.data.bin.2 <- merge(full.data.bin.1, water.chemistry.data, by = "UID", 
+												 all = FALSE)
+full.data.bin.3 <- merge(full.data.bin.2, invertebrate.data, by = "UID")
+full.data       <- na.omit(full.data.bin.3)
+
+## Set number of cores for parallel processing
+n.cores <- detectCores() - 1
+
+## Load the final workspace as a time-saving measure. The EMS analysis can 
+## take considerable amount of time (~9.5 hours on 6 cores). Moreover, this 
+## is the final workspace of all analyses, so it should help with reproducibility.
+load("~/Documents/Research/NRSA-CA/R Code/1-Primary Analysis/DMS-NRSA-CA-Workspace.RData")
+```
+
+
+## Network Centrality
+
+Calculate network centrality for each site. Site coordinates are subset for each ecoregion, and the subset dataframes are combined into a list. The list of dataframes is then supplied to the network centrality function, and all measures of network centrality are appended into a single dataframe. Network centrality is calculated as the mean geodesic distance between a site to all other sites in the ecoregion. Network centrality is a measure of how connected a site is to other sites, or how far organisms would have to disperse between or among sites. 
+
+```{r Network Centrality, include=FALSE}
+## Site longitude and latitude data for each ecoregion
+CPL.coord <- full.data[full.data$ecoregion == "CPL", c(23, 22)]
+NAP.coord <- full.data[full.data$ecoregion == "NAP", c(23, 22)]
+NPL.coord <- full.data[full.data$ecoregion == "NPL", c(23, 22)]
+SAP.coord <- full.data[full.data$ecoregion == "SAP", c(23, 22)]
+SPL.coord <- full.data[full.data$ecoregion == "SPL", c(23, 22)]
+TPL.coord <- full.data[full.data$ecoregion == "TPL", c(23, 22)]
+UMW.coord <- full.data[full.data$ecoregion == "UMW", c(23, 22)]
+WMT.coord <- full.data[full.data$ecoregion == "WMT", c(23, 22)]
+XER.coord <- full.data[full.data$ecoregion == "XER", c(23, 22)]
+
+## Convert mean annual flow from CFS (cubic feet/second) to m^3/s
+full.data$mean.annual.flow <- full.data$mean.annual.flow * 0.0283168
+
+## List of long/lat dataframes
+full.coord.list <- list(CPL.coord, NAP.coord, NPL.coord, SAP.coord, SPL.coord, 
+											  TPL.coord, UMW.coord, WMT.coord, XER.coord)
+
+## Define function (network centrality, or mean pairwise distance between all sites)
+network.centrality <- function(j){
+	
+	## Calculate the mean geodesic distance (in meters) for each site
+	site.centrality.bin.1 <- rowMeans(distm(j, fun = distGeo))
+	
+	## Convert geodesic from m to km
+	site.centrality <- site.centrality.bin.1/1000
+	
+	## Set final data
+	site.mean.geodesic <- as.data.frame(site.centrality)
+}
+
+## Run the analysis for each of the 9 ecoregions
+final.network.centrality <- lapply(full.coord.list, 
+																	 FUN = network.centrality)  %>% bind_rows()
+
+## Bind distance to centroid for each site to the final dataframe
+final.data <- cbind(full.data, final.network.centrality)
+```
+
+
+## Data Management
+
+Subset data to create site-by-taxa matrices as well as dataframes with taxa and environmental covariates for each site. The data are subset by ecoregion, and combined into a list. The list is then supplied to the taxa.matrices() function, which creates a site-by-taxa matrix for all taxa present in each ecoregion which is created into its own list.
+
+```{r Data Management, include=FALSE}
+## Subset ecoregions for later analyses
+CPL.data <- final.data[final.data$ecoregion == "CPL", ]
+NAP.data <- final.data[final.data$ecoregion == "NAP", ]
+NPL.data <- final.data[final.data$ecoregion == "NPL", ]
+SAP.data <- final.data[final.data$ecoregion == "SAP", ]
+SPL.data <- final.data[final.data$ecoregion == "SPL", ]
+TPL.data <- final.data[final.data$ecoregion == "TPL", ]
+UMW.data <- final.data[final.data$ecoregion == "UMW", ]
+WMT.data <- final.data[final.data$ecoregion == "WMT", ]
+XER.data <- final.data[final.data$ecoregion == "XER", ]
+
+## List of dataframes for each ecoregion
+final.data.list <- list(CPL.data, NAP.data, NPL.data, SAP.data, SPL.data, 
+											  TPL.data, UMW.data, WMT.data, XER.data)
+
+## Format taxa matrices (site-taxa matrix with taxa abundances)
+## Define function
+taxa.matrices <- function(j){
+	
+	## Subset the data to only contain taxa
+	full.taxa <- j[, 67:1041]
+	
+	## Remove columns for taxa absent from the ecoregion
+	regional.taxa <- full.taxa[, colSums(full.taxa) > 0]
+}
+
+## Get taxa matrices for all ecoregions
+regional.taxa.list <- lapply(final.data.list, FUN = taxa.matrices)
+
+## Rename each dataframe within the list
+names(regional.taxa.list) <- c("CPL.taxa", "NAP.taxa", "NPL.taxa", "SAP.taxa",
+										           "SPL.taxa", "TPL.taxa", "UMW.taxa", "WMT.taxa",
+										           "XER.taxa")
+
+## Export lapply output for each ecoregion
+list2env(regional.taxa.list, envir = .GlobalEnv)
+
+## Subset data into one single taxa abundance matrix
+CUS.taxa.bin.1 <- final.data[, 67:1041]
+CUS.taxa       <- CUS.taxa.bin.1[, colSums(CUS.taxa.bin.1) != 0]
+
+## Set list of taxa abundance matrices
+final.taxa.list <- list(CUS.taxa, CPL.taxa, NAP.taxa, NPL.taxa, SAP.taxa, 
+												SPL.taxa, TPL.taxa, UMW.taxa, WMT.taxa, XER.taxa)
+```
+
+
+## Site Scores & Reciprocal Averaging
+
+Calculate site scores via reciprocal averaging. Reciprocal averaging (RA) arranges sites with more similar compositions closer together (site scores) and species with more similar distributions closer together (species scores). Site scores derived from RA are calculated for each site within an ecoregion for all nine ecoregions. Site scores will then be used as the response for determining which environmental, geographic, and network variables are most important or have the greatest influence on community assembly and composition.
+
+```{r Site Scores & Reciprocal Averaging, include=FALSE}
+## Define function
+RA.function <- function(j){
+	
+	## Format data-----------------------------------------------------------
+	
+	## Get all taxa for the ecoregion
+	full.taxa <- j[, 67:1041]
+	
+	## Remove columns for taxa absent from the ecoregion
+	regional.taxa <- full.taxa[, colSums(full.taxa) != 0]
+	
+	## Reciprocal Averaging--------------------------------------------------
+	RA.site.scores <- as.data.frame(OrderMatrix((regional.taxa > 0), 
+																							scores = 1, outputScores = TRUE,
+																							binary = TRUE)$sitescores)
+	## Rename column
+	colnames(RA.site.scores) <- "site.scores"
+	
+	## Set a vector of final RA site scores before adding environmental covariates
+	RA.scores <- RA.site.scores
+	
+	## Set environmental variables to add
+	ecoregion.site.info <- j[, c(59, 57, 62, 61, 52:53, 41, 46, 43,
+															 18, 16:17, 11, 22, 23, 5, 2, 1042)]
+	
+	## Bind RA site scores with environmental variables
+	RA.data <- cbind(RA.scores, ecoregion.site.info)
+}
+
+## Get site scores from reciprocal averaging for all sites from all ecoregions
+regional.RA.data <- lapply(final.data.list, FUN = RA.function)
+
+## Rename each dataframe within the list
+names(regional.RA.data) <- c("CPL.RA.data", "NAP.RA.data", "NPL.RA.data", 
+													   "SAP.RA.data", "SPL.RA.data", "TPL.RA.data", 
+													   "UMW.RA.data", "WMT.RA.data", "XER.RA.data")
+
+## Export lapply output for each ecoregion (gives RA data for each ecoregion)
+list2env(regional.RA.data, envir = .GlobalEnv)
+
+## Get site scores for all ecoregions in one single dataframe for boosted regressions
+CUS.RA.data <- as.data.frame(lapply(final.data.list, 
+																		FUN = RA.function)  %>% bind_rows())
+```
+
+
+```{r Save Workspace for BRT Model Training, include=FALSE}
+save.image("~/Documents/Research/NRSA-CA/R Code/2-BRT Model Training/DMS-NRSA-CA-BRT_Training_Data.RData")
+```
+
+
+## Elements of Metacommunity Structure (EMS) Analyses
+
+Calculate the three elements of metacommunity structure (EMS) as defined by Leibold & Mikkelson (2002): coherence, turnover, and boundary clumping. All three elements are calculated with the Metacommunity() function. The  EMS for the entire CUS and each ecoregion are calculated (each  ecoregion region serves as the regional metacommunity), and then the  summary statistics are extracted and appended into a final summary dataframe.
+
+* Definitions:
++ Coherence: the number of embedded absences in the ordinated matrix (species absences occurring within surrounding presences).
++ Turnover: how often species/taxa replace another between sites.
++ Boundary Clumping: a measure of species/taxa dispersions among sites, or how clumped distributions are at edges/boundaries.
+
+Statistical significance for coherence and turnover is calculated in relation to a null distribution on randomized taxa matrices. For the null randomization, use the conservative fixed-fixed null model (method = "swap") whereby the number of occupied sites and number of species/taxa are held constant. Statistical significance for boundary clumping (Morisita’s index) is calculated relative to a chi-square distribution.
+
+For a full description of the EMS, please see:
+
+> Leibold, M.A., and G. Mikkelson. 2002. Coherence, species turnover, and boundary clumping: elements of meta-community structure. _Oikos_ 97: 237–250.
+
+```{r EMS Analyses, include=FALSE}
+## List of taxa matrices for EMS analyses
+EMS.data.list <- list(CUS.taxa, CPL.taxa, NAP.taxa, NPL.taxa, SAP.taxa, 
+											SPL.taxa, TPL.taxa, UMW.taxa, WMT.taxa, XER.taxa)
+
+## Make the results reproducible
+set.seed(123456)
+
+## Start cluster
+cluster <- makeCluster(n.cores)
+
+## Run the EMS analysis for each taxa matrix
+EMS.analysis.list <- parLapply(cluster, final.taxa.list, fun = 
+  function(j){
+	require(metacom)
+	Metacommunity(OrderMatrix(j > 0), method = "swap", sims = 1000, binary = TRUE, 
+								allowEmpty = FALSE, seed = 123456)
+	}
+)
+
+## Stop cluster
+stopCluster(cluster)
+
+## Rename each dataframe within the list
+names(EMS.analysis.list) <- c("CUS.EMS", "CPL.EMS", "NAP.EMS", "NPL.EMS", "SAP.EMS",
+															"SPL.EMS", "TPL.EMS", "UMW.EMS", "WMT.EMS", "XER.EMS")
+
+## Export EMS analysis outputs
+list2env(EMS.analysis.list, envir = .GlobalEnv)
+```
+
+```{r EMS Summary Statistics, include=FALSE}
+## Extract EMS summary statistics
+EMS.statistics <- function(j){
+	
+	## Set empty summary statistics dataframe
+	EMS.summary.statistics <- data.frame("coherence.embAbs" = numeric(length = 1),
+																			 "coherence.z" = numeric(length = 1),
+																			 "coherence.P.value" = numeric(length = 1),
+																			 "coherence.mean" = numeric(length = 1),
+																			 "coherence.variance" = numeric(length = 1),
+																			 "coherence.method" = numeric(length = 1),
+																			 "turnover.Rep" = numeric(length = 1),
+																			 "turnover.z" = numeric(length = 1),
+																			 "turnover.P.value" = numeric(length = 1),
+																			 "turnover.mean" = numeric(length = 1),
+																			 "turnover.variance" = numeric(length = 1),
+																			 "turnover.method" = numeric(length = 1),
+																			 "boundary.Index" = numeric(length = 1),
+																			 "boundary.P.value" = numeric(length = 1),
+																			 "boundary.df" = numeric(length = 1))
+	
+	EMS.summary.statistics[, 1:6]   <- j$Coherence$stat
+	EMS.summary.statistics[, 7:12]  <- j$Turnover$stat
+	EMS.summary.statistics[, 13:15] <- j$Boundary$stat
+	
+	## Set final dataframe
+	full.EMS.statistics <- EMS.summary.statistics
+}
+
+## Get EMS statistics for each ecoregion
+final.EMS.statistics <- as.data.frame(lapply(EMS.analysis.list,
+																						 FUN = EMS.statistics)  %>% bind_rows())
+
+## Set a column for each ecoregion
+final.EMS.statistics$ecoregion <- c("CUS", "CPL", "NAP", "NPL", "SAP", 
+																		"SPL", "TPL", "UMW", "WMT", "XER")
+```
+
+```{r Coherence Statistics, echo=FALSE}
+kable(final.EMS.statistics[, c(1:5, 16)], booktabs = TRUE, caption = "Coherence statistics for the CUS and each individual ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Turnover Statistics, echo=FALSE}
+kable(final.EMS.statistics[, c(7:11, 16)], booktabs = TRUE, caption = "Turnover statistics for the CUS and each individual ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r CBoundary Clumping Statistics, echo=FALSE}
+kable(final.EMS.statistics[, c(13:16)], booktabs = TRUE, caption = "Boundary clumping statistics for the CUS and each individual ecoregion.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+\newpage
+## Additive Partitioning
+
+Assess how taxonomic richness scales across spatial scales. Alpha ($\alpha$) diversity  is local richness, while beta ($\beta$) diversity is the turnover in diversity  from alpha (local, $\alpha$) to gamma (regional, $\gamma$). Additive partitioning scales diversity across samples in a hierarchial sampling design. For this study, $\alpha$ = site, $\beta_1$ = site-to-ecoregion, and $\beta_2$ = ecoregion-to-CUS. 
+
+For a full description of additive partitioning, please see:
+
+> Crist, T.O., J.A. Veech, J.C. Gering, and K.S. Summerville. 2003. Partitioning species diversity across landscapes and regions: a hierarchical analysis of $\alpha$, $\beta$, and $\gamma$ diversity. _The American Naturalist_ 162: 734–743.
+
+Evaluating how the observed and expected taxonomic richness varies across hierarchical scales.
+
+```{r Additive Partitioning, include=FALSE}
+## Set a full community matrix
+community.matrix <- CUS.taxa
+
+## Set dataframe to pair ecoregion with community data
+adipart.data <- data.frame(final.data[rowSums(final.data[, 67:1041] > 0), 25])
+colnames(adipart.data) <- "ecoregion"
+
+## Set numeric vectors to capture hiearchial design of the study
+local.level    <- seq(1:(nrow(adipart.data)))
+regional.level <- as.numeric(adipart.data$ecoregion)
+CUS.level      <- rep(1, times = nrow(adipart.data))
+hierarchy.data <- data.frame(local.level, regional.level, CUS.level)
+
+## Make the results reproducible
+set.seed(123456)
+
+## Additive partitioning of taxonomic richness
+richness.partitioning <- adipart(community.matrix ~ ., hierarchy.data,
+																 index = "richness", relative = TRUE, nsimul = 1000)
+```
+
+```{r Additive Partitioning Results, echo=FALSE}
+richness.partitioning.results <- 
+	data.frame("observed"  = richness.partitioning$statistic,
+						 "simulated" = richness.partitioning$oecosimu$means,
+						 "p-value"   = richness.partitioning$oecosimu$pval)
+kable(richness.partitioning.results, booktabs = TRUE, caption = "Results of the additive partitioning of diversity analysis.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Additive Partitioning Results-Data Management, include=FALSE}
+## Reformat dataframes for easier figure creation
+# Observed values
+richness.partitioning.results.bin.1 <- 
+	data.frame("statistic"  = richness.partitioning.results[c(1, 4, 5), 1],
+						 "statistic type" = c("observed", "observed", "observed"),
+						 "diversity" = c("alpha", "beta1", "beta2"))
+
+# Simulated/expected values
+richness.partitioning.results.bin.2 <- 
+	data.frame("statistic"  = richness.partitioning.results[c(1, 4, 5), 2],
+						 "statistic type" = c("simulated", "simulated", "simulated"),
+						 "diversity" = c("alpha", "beta1", "beta2"))
+
+## Set additive partitioning results into dataframe for plotting
+richness.partitioning.results.final <- bind_rows(
+	richness.partitioning.results.bin.1, richness.partitioning.results.bin.2)
+```
+
+
+```{r Multiplicative Partitioning, include=FALSE}
+## Multiplicative paritioning of taxonomic richness
+multiplicative.partitioning <- multipart(community.matrix ~ ., hierarchy.data, 
+																				 index = "renyi", global = TRUE, 
+																				 scales = 1, nsimul = 1000)
+```
+
+```{r Multiplicative Partitioning Results, echo=FALSE}
+multiplicative.partitioning.results <- 
+	data.frame("observed"  = multiplicative.partitioning$statistic,
+						 "simulated" = multiplicative.partitioning$oecosimu$means,
+						 "p-value"   = multiplicative.partitioning$oecosimu$pval)
+kable(multiplicative.partitioning.results, booktabs = TRUE, caption = "Results of the multiplicative partitioning of diversity analysis.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+\newpage
+## Taxonomic Richness \& Diversity
+
+Compare taxonomic richness and diversity among ecoregions. Taxonomic richness is quantified as the number of taxa present at each site and then compared using a one-way analysis of variance (ANOVA) with Type I sums of squares. Taxonomic diversity is quantified using Shannon's diversity index and then compared using a one-way ANOVA with Type I sums of squares, followed by post-hoc Tukey's HSD. Model assumptions are inspected numerically and graphically.
+
+### Taxonomic Richness
+
+```{r Taxonomic Richness Data Management, include=FALSE}
+## Format taxonomic richness dataframe
+ecoregion.vector <- final.data[rowSums(final.data[, 67:1041]) > 0, 25]
+richness.vector  <- specnumber(final.data[rowSums(final.data[, 67:1041]) > 0, 67:1041])
+richness.data    <- as.data.frame(cbind(ecoregion.vector, richness.vector))
+colnames(richness.data) <- c("ecoregion", "richness")
+
+## Rename ecoregions
+richness.data <- transform(richness.data,
+													 ecoregion = ifelse(richness.data$ecoregion == 1 , "CPL",
+													 						 ifelse(richness.data$ecoregion == 2 , "NAP",
+													 						 ifelse(richness.data$ecoregion == 3 , "NPL",
+													 						 ifelse(richness.data$ecoregion == 4 , "SAP",
+													 						 ifelse(richness.data$ecoregion == 5 , "SPL",
+													 						 ifelse(richness.data$ecoregion == 6 , "TPL",
+													 						 ifelse(richness.data$ecoregion == 7 , "UMW",
+													 						 ifelse(richness.data$ecoregion == 8 , "WMT",
+													 						 ifelse(richness.data$ecoregion == 9 , "XER",
+													 						 			 "NULL"))))))))))
+
+## Coerce ecoregion as a factor for the ANOVA
+richness.data$ecoregion <- as.factor(richness.data$ecoregion)
+```
+
+```{r Richness Data Evaluation, echo=FALSE, fig.width=8, fig.align="center", fig.cap="Boxplot of taxonomic richness by ecoregion.", fig.pos="H"}
+## Visualize equal variance using a boxplot
+boxplot(richness ~ ecoregion, data = richness.data)
+# Variance looks acceptable, despite unequal group sample sizes.
+```
+
+```{r Taxonomic Richness ANOVA, include=FALSE}
+## Compare taxonomic richness across ecoregions using an ANOVA
+richness.anova <- aov(richness ~ ecoregion, data = richness.data)
+```
+
+```{r Taxonomic Richness ANOVA Results, echo=FALSE,}
+kable(tidy(richness.anova), booktabs = TRUE, caption = "Results of the taxonomic richness ANOVA.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Taxonomic Richness ANOVA Diagnostic Plots, echo=FALSE, fig.width=6, fig.align="center", fig.cap="Checking taxonomic richness ANOVA assumptions using diagnostic plots.",fig.pos="H"}
+## Check model assumptions
+par(mfrow = c(2, 2))
+plot(richness.anova)
+```
+
+```{r Taxonomic Richness ANOVA Tukey HSD, echo=FALSE}
+## Tukey groups
+richness.groups <- HSD.test(richness.anova, trt = "ecoregion", group = TRUE)
+kable(richness.groups$groups, booktabs = TRUE, caption = "Groupings assigned to ecoregions differing in taxonomic richness using Tukey's HSD.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Taxonomic Richness Summary, echo=FALSE}
+## Summary of taxonomic richness by ecoregion
+taxonomic.richness.summary <- ddply(richness.data, c("ecoregion"), summarise,
+																	  N    = sum(!is.na(richness)),
+																	  mean = mean(richness, na.rm = TRUE),
+																	  sd   = sd(richness, na.rm = TRUE),
+																	  se   = sd / sqrt(N),
+																	  LL   = quantile(richness, 0.025),
+																	  UL   = quantile(richness, 0.975)
+)
+kable(taxonomic.richness.summary, booktabs = TRUE, caption = "Summary statistics of taxonomic richness among ecoregions.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+\newpage
+### Taxonomic Diversity
+
+```{r Taxonomic Diversity Data Management, include=FALSE}
+## Format taxonomic diversity dataframe
+ecoregion.vector  <- final.data[rowSums(final.data[, 67:1041]) > 0, 25]
+diversity.vector  <- diversity(final.data[, 67:1041], index = "shannon")
+diversity.data    <- as.data.frame(cbind(ecoregion.vector, diversity.vector))
+colnames(diversity.data) <- c("ecoregion", "diversity")
+
+## Rename ecoregions
+diversity.data <- transform(diversity.data,
+													 ecoregion = ifelse(diversity.data$ecoregion == 1 , "CPL",
+													 						 ifelse(diversity.data$ecoregion == 2 , "NAP",
+													 						 ifelse(diversity.data$ecoregion == 3 , "NPL",
+													 						 ifelse(diversity.data$ecoregion == 4 , "SAP",
+													 						 ifelse(diversity.data$ecoregion == 5 , "SPL",
+													 						 ifelse(diversity.data$ecoregion == 6 , "TPL",
+													 						 ifelse(diversity.data$ecoregion == 7 , "UMW",
+													 						 ifelse(diversity.data$ecoregion == 8 , "WMT",
+													 						 ifelse(diversity.data$ecoregion == 9 , "XER",
+													 						 			  "NULL"))))))))))
+
+## Coerce ecoregion as a factor for the ANOVA
+diversity.data$ecoregion <- as.factor(diversity.data$ecoregion)
+```
+
+```{r Diversity Data Evaluation, echo=FALSE, fig.width=8, fig.align="center", fig.cap="Boxplot of taxonomic richness by ecoregion.", fig.pos="H"}
+## Visualize equal variance using a boxplot
+boxplot(diversity ~ ecoregion, data = diversity.data)
+# Variance looks acceptable, despite unequal group sample sizes.
+```
+
+```{r Taxonomic Diversity ANOVA, include=FALSE}
+## Compare taxonomic diversity across ecoregions using an ANOVA
+diversity.anova <- aov(diversity ~ ecoregion, data = diversity.data)
+```
+
+```{r Taxonomic Diversity ANOVA Results, echo=FALSE}
+kable(tidy(diversity.anova), booktabs = TRUE, caption = "Results of the taxonomic diversity ANOVA.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Taxonomic Diversity ANOVA Diagnostic Plots, echo=FALSE, fig.width=6, fig.align="center", fig.cap="Checking taxonomic diversity ANOVA assumptions using diagnostic plots.", fig.pos="H"}
+## Check model assumptions
+par(mfrow = c(2, 2))
+plot(diversity.anova)
+```
+
+```{r Taxonomic Diversity ANOVA Tukey HSD, echo=FALSE}
+## Tukey groups
+diversity.groups <- HSD.test(diversity.anova, trt = "ecoregion", group = TRUE)
+kable(diversity.groups$groups, booktabs = TRUE, caption = "Groupings assigned to ecoregions differing in taxonomic diversity using Tukey's HSD.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r Taxonomic Diversity Summary, echo=FALSE}
+## Summary of taxonomic diversity by ecoregion
+taxonomic.diversity.summary <- ddply(diversity.data, c("ecoregion"), summarise,
+																	   N    = sum(!is.na(diversity)),
+																	   mean = mean(diversity, na.rm = TRUE),
+																	   sd   = sd(diversity, na.rm = TRUE),
+																	   se   = sd / sqrt(N),
+																	   LL   = quantile(diversity, 0.025),
+																	   UL   = quantile(diversity, 0.975)
+)
+kable(taxonomic.diversity.summary, booktabs = TRUE, caption = "Summary statistics of taxonomic diversity among ecoregions.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+\newpage
+## Community Composition
+
+Community composition is compared among ecoregions. A Bray-Curtis dissimilarity index is applied to an untransformed abundance matrix, and then a permutational analysis of variance (PERMANOVA) with 10000 permutations was used to test for differences in community composition. Dimensions were added to the ordination to achieve adequate stress (stress < 0.20).
+
+For additional reading on PERMANOVA, please see:
+
+> Anderson, M. J. 2001. A new method for non-parametric multivariate analysis of variance. _Austral Ecology_ 26:32–46.
+
+```{r Calculate Bray-Curtis Dissimilarity, include=FALSE}
+BC.dis  <- vegdist(final.data[, 67:1041], method = "bray", binary = FALSE)
+BC.NMDS <- monoMDS(BC.dis, k = 3, model = "global", scaling = TRUE, maxit = 500)
+BC.NMDS
+```
+
+```{r Check NMDS Shepard Plot, echo=FALSE, fig.width=6, fig.align="center", fig.cap="Diagnostic plot of the NMDS.", fig.pos="H"}
+stressplot(BC.NMDS)
+```
+
+```{r PERMANOVA, include=FALSE}
+BC.PERMANOVA <- adonis(BC.dis ~ ecoregion, data = final.data, permutations = 10000)
+```
+
+```{r PERMANOVA Results, echo=FALSE}
+kable(BC.PERMANOVA$aov.tab, booktabs = TRUE, caption = "Results of the PERMANOVA.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+\newpage
+## Boosted Regression Tree Analyses
+
+Analyze boosted regression trees (BRTs) to identify which predictors have the greatest influence on community assembly and composition. A single BRT is quantified with all data (i.e. all ecoregions included) in order to identfiy which predictors are most important at the continental scale. In addition to the full BRT, separate BRTs are quantified for each ecoregion to examine important predictors that are ecoregion-specific or vary in relative importance among ecoregions.
+
+BRTs have predictor variables grouped into three classes: environmental, landscape, and network. Environmental variables are considered "local" while landscape and network predictors are considered "regional."
+
+* List of variables and their respective categories:
++ Environmental = NO3, NH4, total.P, pH.lab, cond, DOC, LWD.reach, NAT.cover, ALG.cover
++ Landscape = pct.for, pct.ag, pct.urb, pct.ISC
++ Network = site.lat, site.long, basin.area, mean.annual.flow, site.centrality
+
+BRTs parameters were determined with model tuning, whereby the number of trees, interaction depth, observation per node, and learning rate were set to a series of different values to optimize the BRTs. BRTs were optimized for each ecoregion and the CUS, with specific parameters values varying among BRTs.
+
+```{r BRT Model Parameters, echo=FALSE}
+## Parameters for each BRT that were derived from BRT model training
+CA.BRT.model.parameters <- 
+	data.frame("ecoregion" = c("CUS", "CPL", "NAP", "NPL", "SAP", "SPL", 
+	                           "TPL", "UMW", "WMT", "XER"),
+						 "number of trees" = c(7500, 15000, 15000, 7500, 20000, 
+						 											 7500, 2500, 1000, 10000, 15000),
+						 "interaction depth" = c(3, 3, 2, 2, 3, 3, 2, 2, 2, 2),
+						 "learning rate" = c(0.00100, 0.00025, 0.00050, 0.00050, 0.00050,
+						 										 0.00050, 0.00100, 0.01000, 0.00050, 0.00025),
+						 "minimum observations" = c(50, 10, 5, 5, 20, 10, 20, 5, 5, 5))
+kable(CA.BRT.model.parameters, booktabs = TRUE, caption =  "Model parameters for each BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+Although certain model parameters varied among BRTs, all BRTs were set with a bagging fraction of 0.5 and 10-fold cross validation. 
+
+
+For further reading on BRTs, please see:
+
+> De’Ath, G. 2007. Boosted trees for ecological modeling and prediction. _Ecology_ 88:243–251.
+
+> Elith, J., J. R. Leathwick, and T. Hastie. 2008. A working guide to boosted regression trees. _Journal of Animal Ecology_ 77:802–813.
+
+```{r Data Management for BRTs, include=FALSE}
+## Format data for the BRTs
+CPL.CA.BRT.data <- CPL.RA.data
+NAP.CA.BRT.data <- NAP.RA.data
+NPL.CA.BRT.data <- NPL.RA.data
+SAP.CA.BRT.data <- SAP.RA.data
+SPL.CA.BRT.data <- SPL.RA.data
+TPL.CA.BRT.data <- TPL.RA.data
+UMW.CA.BRT.data <- UMW.RA.data
+WMT.CA.BRT.data <- WMT.RA.data
+XER.CA.BRT.data <- XER.RA.data
+
+## Bind all ecoregions for the CUS
+CUS.CA.BRT.data <- bind_rows(CPL.CA.BRT.data, NAP.CA.BRT.data, NPL.CA.BRT.data,
+														 SAP.CA.BRT.data, SPL.CA.BRT.data, TPL.CA.BRT.data,
+														 UMW.CA.BRT.data, WMT.CA.BRT.data, XER.CA.BRT.data)
+```
+
+```{r CUS BRT, include=FALSE}
+CUS.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = CUS.CA.BRT.data,
+									n.trees = 7500,
+									interaction.depth = 3,
+									n.minobsinnode = 50,
+									shrinkage = 0.00100,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r CPL BRT, include=FALSE}
+CPL.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = CPL.CA.BRT.data,
+									n.trees = 15000,
+									interaction.depth = 3,
+									n.minobsinnode = 10,
+									shrinkage = 0.00025,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r NAP BRT, include=FALSE}
+NAP.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = NAP.CA.BRT.data,
+									n.trees = 15000,
+									interaction.depth = 2,
+									n.minobsinnode = 5,
+									shrinkage = 0.00050,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r NPL BRT, include=FALSE}
+NPL.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = NPL.CA.BRT.data,
+									n.trees = 7500,
+									interaction.depth = 2,
+									n.minobsinnode = 5,
+									shrinkage = 0.00050,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r SAP BRT, include=FALSE}
+SAP.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = SAP.CA.BRT.data,
+									n.trees = 20000,
+									interaction.depth = 3,
+									n.minobsinnode = 20,
+									shrinkage = 0.00050,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r SPL BRT, include=FALSE}
+SPL.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = SPL.CA.BRT.data,
+									n.trees = 7500,
+									interaction.depth = 3,
+									n.minobsinnode = 10,
+									shrinkage = 0.00050,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r TPL BRT, include=FALSE}
+TPL.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = TPL.CA.BRT.data,
+									n.trees = 2500,
+									interaction.depth = 2,
+									n.minobsinnode = 20, # Used 20, not 25 (sample size too small)
+									shrinkage = 0.00100,
+								 	bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r UMW BRT, include=FALSE}
+UMW.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = UMW.CA.BRT.data,
+									n.trees = 1000,
+									interaction.depth = 2,
+									n.minobsinnode = 5,
+									shrinkage = 0.01000,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r WMT BRT, include=FALSE}
+WMT.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = WMT.CA.BRT.data,
+									n.trees = 10000,
+									interaction.depth = 2,
+									n.minobsinnode = 5,
+									shrinkage = 0.00050,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+```{r XER BRT, include=FALSE}
+XER.CA.BRT <- gbm(site.scores ~ NO3 + NH4 + total.P + pH.lab + cond + DOC
+									              + LWD.reach + NAT.cover + ALG.cover
+									              + pct.for + pct.ag + pct.urb + pct.ISC
+ 	  											      + site.lat + site.long
+									              + basin.area + mean.annual.flow 
+											          + site.centrality,
+									distribution = "gaussian",
+									data = XER.CA.BRT.data,
+									n.trees = 15000,
+									interaction.depth = 2,
+									n.minobsinnode = 5,
+									shrinkage = 0.00025,
+									bag.fraction = 0.5,
+									cv.folds = 10)
+```
+
+
+```{r Extract BRT Results, include=FALSE}
+CA.BRT.model.list <- list(CUS.CA.BRT, CPL.CA.BRT, NAP.CA.BRT, NPL.CA.BRT, 
+													SAP.CA.BRT, SPL.CA.BRT, TPL.CA.BRT, UMW.CA.BRT, 
+													WMT.CA.BRT, XER.CA.BRT)
+
+## Get results for each BRT
+BRT.results.list <- lapply(CA.BRT.model.list, 
+   FUN = function(j){
+   ## Extract column of variables
+   predictors <- summary(j)$var
+     
+   ## Extract column of relative influence
+   influence <- summary(j)$rel.inf
+   
+   ## Create dataframe with predictors, relative influence, and predictor type
+   BRT.summary <- data.frame(predictors, influence, predictor.type = length(18))
+     
+   ## Assign predictor types to each predictor
+   BRT.summary.final <- transform(BRT.summary,
+     predictor.type = ifelse(BRT.summary$predictors == "site.centrality" |
+                             BRT.summary$predictors == "mean.annual.flow" |
+                             BRT.summary$predictors == "basin.area" |
+     												 BRT.summary$predictors == "site.long" |
+                             BRT.summary$predictors == "site.lat", "Network",
+                      ifelse(BRT.summary$predictors == "pct.ISC" |
+                             BRT.summary$predictors == "pct.urb" |
+                             BRT.summary$predictors == "pct.ag" |
+                             BRT.summary$predictors == "pct.for", "Landscape",
+                      ifelse(BRT.summary$predictors == "ALG.cover" |
+                             BRT.summary$predictors == "NAT.cover" |
+                             BRT.summary$predictors == "LWD.reach" |
+                             BRT.summary$predictors == "DOC" |
+                             BRT.summary$predictors == "cond" |
+                             BRT.summary$predictors == "pH.lab" |
+                             BRT.summary$predictors == "total.P" |
+                             BRT.summary$predictors == "NH4" |
+                             BRT.summary$predictors == "NO3", "Environmental",
+                      			 "NULL"))))
+  }
+)
+
+## Rename each dataframe within the list
+names(BRT.results.list) <- c("CUS.BRT", "CPL.BRT", "NAP.BRT", "NPL.BRT", "SAP.BRT", 
+														 "SPL.BRT", "TPL.BRT", "UMW.BRT", "WMT.BRT", "XER.BRT")
+
+## Export GBM results
+list2env(BRT.results.list, envir = .GlobalEnv)
+```
+
+#### BRT Numerical Summaries
+
+Exact values of relative influence for predictor variables of community assembly for the CUS and all nine ecoregions.
+
+\newpage
+```{r CUS BRT Numerical Summary, echo=FALSE}
+kable(CUS.BRT, booktabs = TRUE, caption = "Results of the CUS BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r CPL BRT Numerical Summary, echo=FALSE}
+kable(CPL.BRT, booktabs = TRUE, caption = "Results of the CPL BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+```{r NAP BRT Numerical Summary, echo=FALSE}
+kable(NAP.BRT, booktabs = TRUE, caption = "Results of the NAP BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r NPL BRT Numerical Summary, echo=FALSE}
+kable(NPL.BRT, booktabs = TRUE, caption = "Results of the NPL BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+```{r SAP BRT Numerical Summary, echo=FALSE}
+kable(SAP.BRT, booktabs = TRUE, caption = "Results of the SAP BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r SPL BRT Numerical Summary, echo=FALSE}
+kable(SPL.BRT, booktabs = TRUE, caption = "Results of the SPL BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+```{r TPL BRT Numerical Summary, echo=FALSE}
+kable(TPL.BRT, booktabs = TRUE, caption = "Results of the TPL BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r UMW BRT Numerical Summary, echo=FALSE}
+kable(UMW.BRT, booktabs = TRUE, caption = "Results of the UMW BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+```{r WMT BRT Numerical Summary, echo=FALSE}
+kable(WMT.BRT, booktabs = TRUE, caption = "Results of the WMT BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+```{r XER BRT Numerical Summary, echo=FALSE}
+kable(XER.BRT, booktabs = TRUE, caption = "Results of the XER BRT.") %>% kable_styling(latex_options = "HOLD_position")
+```
+
+
+
+```{r Save Final Workspace, include=FALSE}
+save.image("~/Documents/Research/NRSA-CA/R Code/1-Primary Analysis/DMS-NRSA-CA-Workspace.RData")
+```
+
+
